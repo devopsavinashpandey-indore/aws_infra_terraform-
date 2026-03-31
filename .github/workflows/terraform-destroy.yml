@@ -1,0 +1,48 @@
+name: Terraform Destroy
+
+on:
+  workflow_dispatch:
+
+jobs:
+  terraform-destroy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - uses: hashicorp/setup-terraform@v2
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_KEY }}
+        aws-region: ${{ secrets.AWS_REGION || vars.AWS_REGION || 'ap-south-1' }}
+
+    - name: Verify AWS/backend secrets present
+      shell: bash
+      run: |
+        ACCESS_ID="${{ secrets.AWS_ACCESS_KEY_ID || secrets.AWS_ACCESS_KEY }}"
+        SECRET_KEY="${{ secrets.AWS_SECRET_ACCESS_KEY || secrets.AWS_SECRET_KEY }}"
+        if [ -z "$ACCESS_ID" ] || [ -z "$SECRET_KEY" ]; then
+          echo "Missing AWS credentials secrets. Set AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (or AWS_ACCESS_KEY + AWS_SECRET_KEY)."
+          exit 1
+        fi
+
+        TF_STATE_BUCKET="${{ secrets.AWS_TF_STATE_BUCKET }}"
+        TF_LOCK_TABLE="${{ secrets.AWS_TF_LOCK_TABLE }}"
+        if [ -z "$TF_STATE_BUCKET" ] || [ -z "$TF_LOCK_TABLE" ]; then
+          echo "Missing backend secrets. Set AWS_TF_STATE_BUCKET and AWS_TF_LOCK_TABLE in GitHub Secrets."
+          exit 1
+        fi
+
+    - name: Terraform init (remote backend)
+      run: |
+        terraform init -input=false -reconfigure \
+          -backend-config="bucket=${{ secrets.AWS_TF_STATE_BUCKET }}" \
+          -backend-config="dynamodb_table=${{ secrets.AWS_TF_LOCK_TABLE }}" \
+          -backend-config="region=${{ secrets.AWS_REGION || 'ap-south-1' }}"
+
+    - name: Terraform destroy
+      run: terraform destroy -auto-approve -no-color
+
