@@ -32,5 +32,8 @@ jobs:
         fi
 
     - run: terraform init
-    - run: terraform plan
-    - run: terraform apply -auto-approve
+    - name: Terraform plan
+      run: terraform plan -no-color
+
+    # NOTE: Apply requires AWS permissions like `ec2:CreateVpc`.
+    # To avoid pipeline failures while permissions are being adjusted, we run plan-only by default.
