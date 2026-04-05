@@ -1,64 +1,43 @@
-resource "aws_vpc" "main_vpc" {
-  cidr_block = "10.0.0.0/16"
+module "vpc" {
+  source = "./modules/vpc"
+
+  vpc_cidr            = var.vpc_cidr
+  public_subnet_cidr  = var.public_subnet_cidr
+  private_subnet_cidr = var.private_subnet_cidr
+  name_prefix         = var.name_prefix
 }
 
-resource "aws_subnet" "public_subnet" {
-  vpc_id                  = aws_vpc.main_vpc.id
-  cidr_block              = "10.0.1.0/24"
-  map_public_ip_on_launch = true
+module "security_group" {
+  source = "./modules/security_group"
+
+  vpc_id      = module.vpc.vpc_id
+  name_prefix = var.name_prefix
+  allow_ssh   = var.allow_ssh
+  ssh_cidr    = var.ssh_cidr
+  http_cidr   = var.http_cidr
 }
 
-resource "aws_subnet" "private_subnet" {
-  vpc_id     = aws_vpc.main_vpc.id
-  cidr_block = "10.0.2.0/24"
+module "s3" {
+  source = "./modules/s3"
+
+  name_prefix       = var.name_prefix
+  bucket_name       = var.s3_bucket_name
+  enable_versioning = var.s3_enable_versioning
 }
 
-resource "aws_internet_gateway" "igw" {
-  vpc_id = aws_vpc.main_vpc.id
+module "iam_ec2_s3" {
+  source = "./modules/iam_ec2_s3"
+
+  name_prefix   = var.name_prefix
+  s3_bucket_arn = module.s3.bucket_arn
 }
 
-resource "aws_route_table" "public_rt" {
-  vpc_id = aws_vpc.main_vpc.id
-}
+module "ec2" {
+  source = "./modules/ec2"
 
-resource "aws_route" "internet_access" {
-  route_table_id         = aws_route_table.public_rt.id
-  destination_cidr_block = "0.0.0.0/0"
-  gateway_id             = aws_internet_gateway.igw.id
-}
-
-resource "aws_route_table_association" "public_assoc" {
-  subnet_id      = aws_subnet.public_subnet.id
-  route_table_id = aws_route_table.public_rt.id
-}
-
-data "aws_ami" "ubuntu" {
-  most_recent = true
-  owners      = ["099720109477"] # Canonical
-
-  filter {
-    name   = "name"
-    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
-  }
-
-  # Keep it explicit so we don't accidentally pick a different platform.
-  filter {
-    name   = "architecture"
-    values = ["x86_64"]
-  }
-
-  filter {
-    name   = "root-device-type"
-    values = ["ebs"]
-  }
-}
-
-resource "aws_instance" "web_server" {
-  ami           = data.aws_ami.ubuntu.id
-  instance_type = "t2.micro"
-  subnet_id     = aws_subnet.public_subnet.id
-
-  tags = {
-    Name = "Terraform-Web"
-  }
+  subnet_id              = module.vpc.public_subnet_id
+  instance_type          = var.instance_type
+  instance_name          = var.instance_name
+  vpc_security_group_ids = [module.security_group.security_group_id]
+  iam_instance_profile   = module.iam_ec2_s3.instance_profile_name
 }
